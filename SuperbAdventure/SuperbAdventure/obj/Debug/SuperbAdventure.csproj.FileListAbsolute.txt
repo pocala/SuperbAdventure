@@ -1,0 +1,15 @@
+C:\Coding Projects\SuperbAdventure\SuperbAdventure\bin\Debug\SuperbAdventure.exe.config
+C:\Coding Projects\SuperbAdventure\SuperbAdventure\bin\Debug\SuperbAdventure.exe
+C:\Coding Projects\SuperbAdventure\SuperbAdventure\bin\Debug\SuperbAdventure.pdb
+C:\Coding Projects\SuperbAdventure\SuperbAdventure\obj\Debug\SuperbAdventure.csproj.AssemblyReference.cache
+C:\Coding Projects\SuperbAdventure\SuperbAdventure\obj\Debug\SuperbAdventure.SuperbAdventure.resources
+C:\Coding Projects\SuperbAdventure\SuperbAdventure\obj\Debug\SuperbAdventure.Properties.Resources.resources
+C:\Coding Projects\SuperbAdventure\SuperbAdventure\obj\Debug\SuperbAdventure.csproj.GenerateResource.cache
+C:\Coding Projects\SuperbAdventure\SuperbAdventure\obj\Debug\SuperbAdventure.csproj.CoreCompileInputs.cache
+C:\Coding Projects\SuperbAdventure\SuperbAdventure\obj\Debug\SuperbAdventure.exe
+C:\Coding Projects\SuperbAdventure\SuperbAdventure\obj\Debug\SuperbAdventure.pdb
+C:\Coding Projects\SuperbAdventure\SuperbAdventure\bin\Debug\Engine.dll
+C:\Coding Projects\SuperbAdventure\SuperbAdventure\bin\Debug\Engine.pdb
+C:\Coding Projects\SuperbAdventure\SuperbAdventure\obj\Debug\SuperbAdventure.csproj.CopyComplete
+C:\Coding Projects\SuperbAdventure\SuperbAdventure\obj\Debug\SuperbAdventure.TradingScreen.resources
+C:\Coding Projects\SuperbAdventure\SuperbAdventure\obj\Debug\SuperbAdventure.ShopsScreen.resources

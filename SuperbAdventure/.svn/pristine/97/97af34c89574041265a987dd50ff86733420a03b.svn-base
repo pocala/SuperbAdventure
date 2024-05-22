@@ -1,0 +1,379 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Diagnostics;
+using System.Diagnostics.Eventing.Reader;
+using System.Drawing;
+using System.Linq;
+using System.Media;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using Engine;
+using System.IO;
+
+namespace SuperbAdventure
+{
+    public partial class SuperbAdventure : Form
+    {
+        private const string PLAYER_DATA_FILE_NAME = "PlayerData.xml";
+        private Player _player;
+        private Monster _currentMonster;
+        public SuperbAdventure()
+        {
+            InitializeComponent();
+            if (File.Exists(PLAYER_DATA_FILE_NAME))
+            {
+                _player = Player.CreatePlayerFromXmlString(File.ReadAllText(PLAYER_DATA_FILE_NAME));
+                
+                
+                //string currentDirectory = System.IO.Directory.GetCurrentDirectory();
+                //rtbMessages.Text += "Current Working Directory: " + currentDirectory;
+            }
+            else
+            {
+                _player = Player.CreateDefaultPlayer();
+            }
+            lblHitPoints.DataBindings.Add("Text", _player, "CurrentHitPoints");
+            lblGold.DataBindings.Add("Text", _player, "Gold");
+            lblExperience.DataBindings.Add("Text", _player, "ExperiencePoints");
+            lblLevel.DataBindings.Add("Text", _player, "Level");
+
+            dgvInventory.RowHeadersVisible = false;
+            dgvInventory.AutoGenerateColumns = false;
+            dgvInventory.DataSource = _player.Inventory; //"binds" the data to the UI
+
+            dgvInventory.Columns.Add(new DataGridViewTextBoxColumn //Configures the datagridview for Inventory
+            {
+                HeaderText = "Name",
+                Width = 197,
+                DataPropertyName = "Description" //The property to be displayed
+            });
+
+            dgvInventory.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                HeaderText  = "Quantity",
+                DataPropertyName = "Quantity"
+            });
+
+            dgvQuests.RowHeadersVisible = false;
+            dgvQuests.AutoGenerateColumns = false;
+            dgvQuests.DataSource = _player.Quests; //"binds" the data to the UI
+            dgvQuests.Columns.Add(new DataGridViewTextBoxColumn //Configures the datagridview for PlayerQuest
+            {
+                HeaderText = "Name",
+                Width = 197,
+                DataPropertyName = "Name" //The property to be displayed
+            });
+
+            dgvQuests.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                HeaderText = "Done?",
+                DataPropertyName = "IsCompleted"
+            });
+
+            cboWeapons.DataSource = _player.Weapons;
+            cboWeapons.DisplayMember = "Name"; //What property to display
+            cboWeapons.ValueMember = "ID"; //What property to use as value
+            if (_player.CurrentWeapon != null)
+            {
+                cboWeapons.SelectedItem = _player.CurrentWeapon;
+            }
+            cboWeapons.SelectedIndexChanged += cboWeapons_SelectedIndexChanged; //Existing function for when the player chooses a new weapon in the combobox 
+
+            cboPotions.DataSource = _player.HealingPotions;
+            cboPotions.DisplayMember = "Name";
+            cboPotions.ValueMember = "ID";
+
+            _player.PropertyChanged += PlayerOnPropertyChanged; //Function to update combobox data when player inventory changes 
+            //This line subscribes the PlayerOnPropertyChanged to the PropertyChanged event of the _player object
+            //Whenever a property of _player changes and raise the PropertyChanged event, PlayerOnPropertyChanged will be invoked
+
+            MoveTo(_player.CurrentLocation);
+        }
+
+        private void PlayerOnPropertyChanged(object sender, PropertyChangedEventArgs propertyChangedEventArgs)
+        //sender is the object that raises the event, propertyChangedEventArgs contains info on the changed property    
+        {
+            if (propertyChangedEventArgs.PropertyName == "Weapons") //To see which property was changed on the Player Object. Value comes from Player.RaiseInventoryChangedEvent
+            {
+                cboWeapons.DataSource = _player.Weapons;
+                if (!_player.Weapons.Any()) //.Any checks if there are anything in the list
+                {
+                    cboWeapons.Visible = false;
+                    btnUseWeapon.Visible = false;
+                }
+            }
+            if (propertyChangedEventArgs.PropertyName == "Potions")
+            {
+                cboPotions.DataSource = _player.HealingPotions;
+                if (!_player.HealingPotions.Any())
+                {
+                    cboPotions.Visible = false;
+                    btnUsePotion.Visible = false;
+                }
+            }
+        }
+
+        private void btnNorth_Click(object sender, EventArgs e)
+        {
+            MoveTo(_player.CurrentLocation.LocationToNorth);
+        }
+
+        private void btnSouth_Click(object sender, EventArgs e)
+        {
+            MoveTo(_player.CurrentLocation.LocationToSouth);
+        }
+
+        private void btnWest_Click(object sender, EventArgs e)
+        {
+            MoveTo(_player.CurrentLocation.LocationToWest);
+        }
+
+        private void btnEast_Click(object sender, EventArgs e)
+        {
+            MoveTo(_player.CurrentLocation.LocationToEast);
+        }
+        private void MoveTo(Location newLocation)
+        {
+
+            //Does the location have any required items
+            if (!_player.HasRequiredItemToEnterLocation(newLocation))
+            {
+                rtbMessages.Text += "You must have a " + newLocation.ItemRequiredToEnter.Name + " to enter this location." + Environment.NewLine;
+                return; //to break the function, otherwise the player can still proceed even without the item
+            }
+            _player.CurrentLocation = newLocation;
+            if (newLocation.QuestAvailableHere != null) //Check if location has quests and if it does, call handlequest function
+            {
+                HandleQuest(newLocation);
+            }
+            if (newLocation.MonsterLivingHere != null)
+            {
+                MonsterAppears(newLocation);
+            }
+            else if (newLocation.MonsterLivingHere == null)
+            {
+                _currentMonster = null;
+                OutOfCombatUI();
+            }
+            rtbLocation.Text = newLocation.Name + Environment.NewLine;
+            rtbLocation.Text += newLocation.Description + Environment.NewLine;
+
+            btnNorth.Visible = (newLocation.LocationToNorth != null);
+            btnSouth.Visible = (newLocation.LocationToSouth != null);
+            btnEast.Visible = (newLocation.LocationToEast != null);
+            btnWest.Visible = (newLocation.LocationToWest != null);
+        }
+
+        public void HandleQuest(Location location) //To handle if player has completed quests and reward the player if the quest is done
+        {
+            if (location.QuestAvailableHere != null) //Check if location has quests
+            {
+                bool playerAlreadyHasQuest = _player.HasThisQuest(location.QuestAvailableHere); 
+                bool playerAlreadyCompletedQuest = _player.CompletedThisQuest(location.QuestAvailableHere); 
+
+                if (playerAlreadyHasQuest)
+                {
+                    if (!playerAlreadyCompletedQuest)
+                    {
+                        bool playerHasRequiredItemsToCompleteQuest = _player.HasAllRequiredItemsToClearQuest(location.QuestAvailableHere); //See if player has all items   
+                        if (playerHasRequiredItemsToCompleteQuest)
+                        {
+                            HandleQuestCompleted(location);
+                            //UpdatePlayerStats();
+                        }
+                    }
+                }
+                else //Player does not have the quest
+                {
+                    HandleQuestReceived(location);
+                }
+            }
+        }
+
+        private void HandleQuestReceived(Location location)
+        {
+            rtbMessages.Text += "You received a quest: " + location.QuestAvailableHere.Name + Environment.NewLine;
+            rtbMessages.Text += location.QuestAvailableHere.Description + Environment.NewLine;
+            foreach (QuestCompletionItem qci in location.QuestAvailableHere.QuestCompletionItems)
+            {
+                if (qci.Quantity == 1)
+                {
+                    rtbMessages.Text += qci.Quantity.ToString() + " " + qci.Details.Name + " " + "is required to complete this quest" + Environment.NewLine;
+                }
+                else
+                {
+                    rtbMessages.Text += qci.Quantity.ToString() + " " + qci.Details.NamePlural + " " + "are required to complete this quest" + Environment.NewLine;
+                }
+            }
+            rtbMessages.Text += Environment.NewLine;
+            _player.Quests.Add(new PlayerQuest(location.QuestAvailableHere));
+        }
+
+        private void HandleQuestCompleted(Location location)
+        {
+            rtbMessages.Text += "You completed " + location.QuestAvailableHere.Name + Environment.NewLine;
+            _player.RemoveQuestItemsFromInventory(location.QuestAvailableHere);
+
+            rtbMessages.Text += "You received " + location.QuestAvailableHere.RewardGold.ToString() + " gold" + Environment.NewLine;
+            rtbMessages.Text += "You received " + location.QuestAvailableHere.RewardExperiencePoints.ToString() + " experience points" + Environment.NewLine;
+            rtbMessages.Text += "You received " + location.QuestAvailableHere.RewardItem.Name + Environment.NewLine;
+            rtbMessages.Text += Environment.NewLine;
+
+            //Give quest rewards
+            _player.Gold += location.QuestAvailableHere.RewardGold;
+            _player.ExperiencePoints += location.QuestAvailableHere.RewardExperiencePoints;
+            _player.AddItemToInventory(location.QuestAvailableHere.RewardItem);
+
+            //Mark the quest as completed
+            _player.MarkQuestAsCompleted(location.QuestAvailableHere);
+        }
+
+        private void MonsterAppears(Location location)
+        {
+            rtbMessages.Text += "You see a " + location.MonsterLivingHere.Name + Environment.NewLine;
+            Monster standardMonster = World.MonsterByID(location.MonsterLivingHere.ID); //make a new instance instead of _currentMonster = location.MonsterLivingHere
+            _currentMonster = new Monster(standardMonster.ID, standardMonster.Name, standardMonster.MaximumDamage,
+                standardMonster.RewardExperiencePoints, standardMonster.RewardGold, standardMonster.CurrentHitPoints, standardMonster.MaximumHitPoints); //then add it to the private instance
+            foreach(LootItem lootitem in standardMonster.LootTable)
+            {
+                _currentMonster.LootTable.Add(lootitem); //Add the loottable to the current monster as well
+            }
+            cboWeapons.Visible = _player.Weapons.Any();
+            btnUseWeapon.Visible = _player.Weapons.Any();
+            cboPotions.Visible = _player.HealingPotions.Any();
+            btnUsePotion.Visible = _player.HealingPotions.Any();
+        }
+
+        private void btnUseWeapon_Click(object sender, EventArgs e)
+        {
+            Weapon currentWeapon = (Weapon)cboWeapons.SelectedItem;
+            int damageToMonster = RandomNumberGenerator.NumberBetween(currentWeapon.MinimumDamage, currentWeapon.MaximumDamage);
+            _currentMonster.CurrentHitPoints -= damageToMonster;
+            rtbMessages.Text += "You dealt " + damageToMonster.ToString() + " points of damage to the " + _currentMonster.Name + Environment.NewLine;
+            if (_currentMonster.CurrentHitPoints <= 0)
+            {
+                MonsterIsDefeated();
+            }
+            else 
+            {
+                MonsterAttacks();
+            }
+        }
+
+        private void MonsterIsDefeated()
+        {
+            rtbMessages.Text += "You defeated the " + _currentMonster.Name + Environment.NewLine;
+            _player.Gold += _currentMonster.RewardGold;
+            lblGold.Text = _player.Gold.ToString();
+            _player.AddExperience(_currentMonster.RewardExperiencePoints);
+            lblExperience.Text = _player.ExperiencePoints.ToString();
+            
+            AddMonsterLootToInventory();
+            _currentMonster = null;
+            OutOfCombatUI();
+            /*cboWeapons.Visible = false;
+            btnUseWeapon.Visible = false;
+            cboPotions.Visible = false;
+            btnUsePotion.Visible = false;*/
+        }
+
+        private void AddMonsterLootToInventory()
+        {
+            List<InventoryItem> lootedItem = new List<InventoryItem>(); //Create a list to temporarily store looted items from the monster
+            foreach (LootItem lootItem in _currentMonster.LootTable)
+            {
+                if (RandomNumberGenerator.NumberBetween(1, 100) <= lootItem.DropPercentage)
+                {
+                    lootedItem.Add(new InventoryItem(lootItem.Details, 1));
+                }
+            }
+            if (lootedItem.Count == 0) //If nothing is looted, give the default item
+            {
+                foreach (LootItem lootItem in _currentMonster.LootTable)
+                {
+                    if (lootItem.IsDefaultItem)
+                    {
+                        lootedItem.Add(new InventoryItem(lootItem.Details, 1));
+                    }
+                }
+            }
+            foreach (InventoryItem inventoryItem in lootedItem)
+            {
+                _player.AddItemToInventory(inventoryItem.Details);
+                if (inventoryItem.Quantity == 1)
+                {
+                    rtbMessages.Text += "You looted " + inventoryItem.Quantity + " " + inventoryItem.Details.Name + Environment.NewLine;
+                }
+                else
+                {
+                    rtbMessages.Text += "You looted " + inventoryItem.Quantity + " " + inventoryItem.Details.NamePlural + Environment.NewLine;
+                }
+
+            }
+        }
+
+        private void MonsterAttacks()
+        {
+            rtbMessages.Text += "The " + _currentMonster.Name + " attacked! ";
+            int damageToPlayer = RandomNumberGenerator.NumberBetween(0, _currentMonster.MaximumDamage);
+            _player.CurrentHitPoints -= damageToPlayer;
+            rtbMessages.Text += "The " + _currentMonster.Name + " hit you for " + damageToPlayer.ToString() + "points of damage" + Environment.NewLine;
+            lblHitPoints.Text = _player.CurrentHitPoints.ToString();
+
+            if (_player.CurrentHitPoints <= 0)
+            {
+                PlayerDies();
+            }
+        }
+
+        private void PlayerDies()
+        {
+            rtbMessages.Text += "You died to the " + _currentMonster.Name + "!" + Environment.NewLine;
+            MoveTo(World.LocationByID(World.LOCATION_ID_HOME));
+            _player.CurrentHitPoints = _player.MaximumHitPoints; //Make to max hp
+            lblHitPoints.Text = _player.CurrentHitPoints.ToString() + Environment.NewLine;
+        }
+
+
+        private void btnUsePotion_Click(object sender, EventArgs e)
+        {
+            
+            HealingPotion potionToUse = (HealingPotion)cboPotions.SelectedItem; //selects the current item
+            int healingAmount = potionToUse.HealingAmount;
+            rtbMessages.Text += "You drank a " + potionToUse.Name + "for " + healingAmount.ToString() + "points of health" + Environment.NewLine;
+            _player.CurrentHitPoints += healingAmount;
+            
+            if (_player.CurrentHitPoints > _player.MaximumHitPoints)
+            {
+                _player.CurrentHitPoints = _player.MaximumHitPoints;
+            }
+            _player.RemoveItemFromInventory(potionToUse, 1);
+            MonsterAttacks();
+        }
+
+        private void OutOfCombatUI()
+        {
+            btnUseWeapon.Visible = false;
+            cboWeapons.Visible = false;
+            btnUsePotion.Visible = false;
+            cboPotions.Visible = false;
+        }
+        private void rtbMessages_TextChanged(object sender, EventArgs e)
+        {
+            rtbMessages.SelectionStart = rtbMessages.Text.Length;
+            rtbMessages.ScrollToCaret();
+        }
+
+        private void SuperbAdventure_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            File.WriteAllText(PLAYER_DATA_FILE_NAME, _player.ToXmlString());
+        }
+        private void cboWeapons_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            _player.CurrentWeapon = (Weapon)cboWeapons.SelectedItem;
+        }
+    }
+}
